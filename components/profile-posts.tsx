@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { Grid, Heart, MessageCircle, StepBackIcon } from "lucide-react"
+import { Grid, Heart, MessageCircle, PlayIcon } from "lucide-react"
 
 interface Post {
   id: string
@@ -89,7 +89,7 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
                   
                 </div>
                 <div className="flex items-center gap-1 md:gap-2">
-                  <StepBackIcon className="w-4 h-4 md:w-6 md:h-6 fill-white" />
+                  <PlayIcon className="w-4 h-4 md:w-6 md:h-6 fill-white" />
                   <span className="font-semibold">{formatNumber(post.views_count || 0)}</span>
                 </div>
               </div>
