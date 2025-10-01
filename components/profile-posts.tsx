@@ -81,12 +81,12 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <div className="flex items-center gap-4 text-white text-sm md:text-base">
                 <div className="flex items-center gap-1 md:gap-2">
-                  <Heart className="w-4 h-4 md:w-6 md:h-6 fill-white" />
-                  <span className="font-semibold">{formatNumber(post.likes_count)}</span>
+                  
+                  
                 </div>
                 <div className="flex items-center gap-1 md:gap-2">
-                  <MessageCircle className="w-4 h-4 md:w-6 md:h-6 fill-white" />
-                  <span className="font-semibold">{formatNumber(post.comments_count)}</span>
+                  
+                  
                 </div>
                 <div className="flex items-center gap-1 md:gap-2">
                   <Eye className="w-4 h-4 md:w-6 md:h-6 fill-white" />

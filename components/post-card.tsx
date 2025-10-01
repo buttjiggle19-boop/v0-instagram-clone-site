@@ -100,4 +100,4 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
     </div>
   )
 }
-EyeIcon
+EyeIconEyeIcon
