@@ -1,8 +1,6 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -18,6 +16,7 @@ interface Post {
   image_url: string
   likes_count: number
   comments_count: number
+  views_count?: number
   created_at: string
   profiles: {
     username: string
@@ -39,29 +38,48 @@ interface PostDetailProps {
   post: Post
 }
 
-export function PostDetail({ post }: PostDetailProps) {
+export const PostDetail: React.FC<PostDetailProps> = ({ post }) => {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState("")
   const [isLiked, setIsLiked] = useState(false)
-  const [likesCount, setLikesCount] = useState(post.likes_count)
+  const [likesCount, setLikesCount] = useState<number>(post.likes_count ?? 0)
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [loadingComments, setLoadingComments] = useState(true)
+  const [likeLoading, setLikeLoading] = useState(false)
 
   useEffect(() => {
-    getCurrentUser()
-    fetchComments()
-    checkIfLiked()
+    // load user and comments on mount
+    const init = async () => {
+      await getCurrentUser()
+      await fetchComments()
+    }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // when currentUser becomes available, check if liked
+  useEffect(() => {
+    if (currentUser) {
+      checkIfLiked()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser])
 
   const getCurrentUser = async () => {
     const supabase = createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    setCurrentUser(user)
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      setCurrentUser(user)
+    } catch (err) {
+      // silent fail — user might be null
+      setCurrentUser(null)
+    }
   }
 
   const fetchComments = async () => {
+    setLoadingComments(true)
     const supabase = createClient()
     const { data, error } = await supabase
       .from("comments")
@@ -79,56 +97,98 @@ export function PostDetail({ post }: PostDetailProps) {
 
     if (!error && data) {
       setComments(data)
+    } else {
+      setComments([])
     }
-    setLoading(false)
+    setLoadingComments(false)
   }
 
   const checkIfLiked = async () => {
-    if (!currentUser) return
+    if (!currentUser) {
+      setIsLiked(false)
+      return
+    }
 
     const supabase = createClient()
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("likes")
       .select("id")
       .eq("post_id", post.id)
       .eq("user_id", currentUser.id)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
-    setIsLiked(!!data)
+    if (!error) {
+      setIsLiked(!!data)
+    }
   }
 
   const toggleLike = async () => {
-    if (!currentUser) return
-
+    if (!currentUser || likeLoading) return
+    setLikeLoading(true)
     const supabase = createClient()
 
     if (isLiked) {
-      await supabase.from("likes").delete().eq("post_id", post.id).eq("user_id", currentUser.id)
-
+      // optimistic update
       setIsLiked(false)
-      setLikesCount((prev) => prev - 1)
+      setLikesCount((c) => Math.max(0, c - 1))
+
+      const { error } = await supabase
+        .from("likes")
+        .delete()
+        .eq("post_id", post.id)
+        .eq("user_id", currentUser.id)
+
+      if (error) {
+        // revert on failure
+        setIsLiked(true)
+        setLikesCount((c) => c + 1)
+      }
     } else {
-      await supabase.from("likes").insert({
+      // optimistic update
+      setIsLiked(true)
+      setLikesCount((c) => c + 1)
+
+      const { error } = await supabase.from("likes").insert({
         post_id: post.id,
         user_id: currentUser.id,
       })
 
-      setIsLiked(true)
-      setLikesCount((prev) => prev + 1)
+      if (error) {
+        // revert on failure
+        setIsLiked(false)
+        setLikesCount((c) => Math.max(0, c - 1))
+      }
     }
+
+    setLikeLoading(false)
   }
 
-  const handleAddComment = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleAddComment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (!newComment.trim() || !currentUser) return
 
     const supabase = createClient()
+
+    // optimistic local add with a temporary id
+    const tempComment: Comment = {
+      id: `temp-${Date.now()}`,
+      content: newComment.trim(),
+      created_at: new Date().toISOString(),
+      profiles: {
+        username: currentUser.user_metadata?.username ?? currentUser.email ?? "You",
+        avatar_url: currentUser.user_metadata?.avatar_url ?? null,
+      },
+    }
+    setComments((prev) => [...prev, tempComment])
+    setNewComment("")
+
     const { data, error } = await supabase
       .from("comments")
       .insert({
         post_id: post.id,
         user_id: currentUser.id,
-        content: newComment.trim(),
+        content: tempComment.content,
       })
       .select(`
         id,
@@ -142,8 +202,11 @@ export function PostDetail({ post }: PostDetailProps) {
       .single()
 
     if (!error && data) {
-      setComments((prev) => [...prev, data])
-      setNewComment("")
+      // replace temp comment with saved one
+      setComments((prev) => prev.map((c) => (c.id.startsWith("temp-") ? data : c)))
+    } else {
+      // if error, remove the temp comment
+      setComments((prev) => prev.filter((c) => !c.id.startsWith("temp-")))
     }
   }
 
@@ -172,12 +235,12 @@ export function PostDetail({ post }: PostDetailProps) {
                 {post.profiles.username}
               </Link>
             </div>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="more">
               <MoreHorizontal className="w-4 h-4" />
             </Button>
           </div>
 
-          {/* Comments */}
+          {/* Comments / Caption */}
           <div className="flex-1 overflow-y-auto max-h-96 p-4 space-y-4">
             {/* Caption */}
             {post.caption && (
@@ -201,7 +264,7 @@ export function PostDetail({ post }: PostDetailProps) {
             )}
 
             {/* Comments List */}
-            {loading ? (
+            {loadingComments ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="flex gap-3">
@@ -222,10 +285,7 @@ export function PostDetail({ post }: PostDetailProps) {
                   </Avatar>
                   <div className="flex-1">
                     <div className="text-sm">
-                      <Link
-                        href={`/profile/${comment.profiles.username}`}
-                        className="font-semibold mr-2 hover:underline"
-                      >
+                      <Link href={`/profile/${comment.profiles.username}`} className="font-semibold mr-2 hover:underline">
                         {comment.profiles.username}
                       </Link>
                       <span>{comment.content}</span>
@@ -239,51 +299,62 @@ export function PostDetail({ post }: PostDetailProps) {
             )}
           </div>
 
-          {/* Actions */}
+          {/* Actions / Likes / Views / Add comment */}
           <div className="border-t border-border p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-4">
-                <Button variant="ghost" size="sm" className="p-0 h-auto" onClick={toggleLike}>
-                  <Heart className={`w-6 h-6 ${isLiked ? "fill-red-500 text-red-500" : ""}`} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="p-0 h-auto"
+                  onClick={toggleLike}
+                  aria-pressed={isLiked}
+                  aria-label={isLiked ? "Unlike" : "Like"}
+                >
+                  <Heart className={`w-5 h-5 ${isLiked ? "text-red-500" : ""}`} />
                 </Button>
-                <Button variant="ghost" size="sm" className="p-0 h-auto">
-                  <MessageCircle className="w-6 h-6" />
+
+                <Button variant="ghost" size="sm" className="p-0 h-auto" aria-label="comment">
+                  <MessageCircle className="w-5 h-5" />
                 </Button>
-                <Button variant="ghost" size="sm" className="p-0 h-auto">
-                  <Send className="w-6 h-6" />
+
+                <Button variant="ghost" size="sm" className="p-0 h-auto" aria-label="share">
+                  <Send className="w-5 h-5" />
                 </Button>
               </div>
-              <Button variant="ghost" size="sm" className="p-0 h-auto">
-                <Bookmark className="w-6 h-6" />
+
+              <Button variant="ghost" size="sm" className="p-0 h-auto" aria-label="save">
+                <Bookmark className="w-5 h-5" />
               </Button>
             </div>
 
             {/* Likes */}
             {likesCount > 0 && (
-              <p className="font-semibold text-sm mb-2">
+              <p className="text-sm font-semibold">
                 {likesCount} {likesCount === 1 ? "like" : "likes"}
               </p>
             )}
 
-            {/* Add Comment */}
-            <form onSubmit={handleAddComment} className="flex gap-2">
-              <Input
-                placeholder="Add a comment..."
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                className="flex-1 border-0 p-0 focus-visible:ring-0"
-              />
-              <Button
-                type="submit"
-                variant="ghost"
-                size="sm"
-                disabled={!newComment.trim()}
-                className="text-blue-600 hover:text-blue-700 font-semibold"
-              >
-                Post
-              </Button>
-            </form>
+            {/* Views */}
+            {post.views_count !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                {post.views_count.toLocaleString()} views
+              </p>
+            )}
           </div>
+
+          {/* Add Comment Form */}
+          <form onSubmit={handleAddComment} className="border-t border-border flex items-center p-3 gap-2">
+            <Input
+              placeholder="Add a comment..."
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit" size="sm" disabled={!currentUser || newComment.trim() === ""}>
+              Post
+            </Button>
+          </form>
         </div>
       </div>
     </div>

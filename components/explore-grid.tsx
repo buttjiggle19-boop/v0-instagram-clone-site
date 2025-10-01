@@ -67,12 +67,12 @@ export function ExploreGrid() {
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <div className="flex items-center gap-6 text-white">
               <div className="flex items-center gap-2">
-                <Heart className="w-6 h-6 fill-white" />
-                <span className="font-semibold">{post.likes_count}</span>
+                
+                
               </div>
               <div className="flex items-center gap-2">
-                <MessageCircle className="w-6 h-6 fill-white" />
-                <span className="font-semibold">{post.comments_count}</span>
+                
+                
               </div>
             </div>
           </div>
